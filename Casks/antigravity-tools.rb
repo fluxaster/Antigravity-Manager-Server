@@ -4,10 +4,10 @@ cask "antigravity-tools" do
 
   name "Antigravity Tools"
   desc "Professional Account Management for AI Services"
-  homepage "https://github.com/lbjlaq/Antigravity-Manager"
+  homepage "https://github.com/fluxaster/Antigravity-Manager-Server"
 
   on_macos do
-    url "https://github.com/lbjlaq/Antigravity-Manager/releases/download/v#{version}/Antigravity.Tools_#{version}_universal.dmg"
+    url "https://github.com/fluxaster/Antigravity-Manager-Server/releases/download/v#{version}/Antigravity.Tools_#{version}_universal.dmg"
 
     app "Antigravity Tools.app"
 
@@ -30,7 +30,7 @@ cask "antigravity-tools" do
   on_linux do
     arch arm: "aarch64", intel: "amd64"
 
-    url "https://github.com/lbjlaq/Antigravity-Manager/releases/download/v#{version}/Antigravity.Tools_#{version}_#{arch}.AppImage"
+    url "https://github.com/fluxaster/Antigravity-Manager-Server/releases/download/v#{version}/Antigravity.Tools_#{version}_#{arch}.AppImage"
     binary "Antigravity.Tools_#{version}_#{arch}.AppImage", target: "antigravity-tools"
 
     preflight do

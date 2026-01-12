@@ -1,0 +1,26 @@
+services:
+  antigravity-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: antigravity-server:latest
+    container_name: antigravity-server
+    restart: unless-stopped
+    ports:
+      - "8045:8045"
+    volumes:
+      # 持久化配置和账户数据
+      - antigravity-data:/root/.config/antigravity-tools
+    environment:
+      - PORT=8045
+      - RUST_LOG=info
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8045/healthz" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  antigravity-data:
+    driver: local

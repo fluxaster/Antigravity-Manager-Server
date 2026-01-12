@@ -9,6 +9,7 @@ use axum::{
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tower_http::trace::TraceLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, error};
 use tokio::sync::RwLock;
 use std::sync::atomic::AtomicUsize;
@@ -30,6 +31,24 @@ pub struct AppState {
     pub zai_vision_mcp: Arc<crate::proxy::zai_vision_mcp::ZaiVisionMcpState>,
     pub monitor: Arc<crate::proxy::monitor::ProxyMonitor>,
     pub experimental: Arc<RwLock<crate::proxy::config::ExperimentalConfig>>,
+    pub security_state: Arc<RwLock<crate::proxy::ProxySecurityConfig>>,
+    pub sessions: crate::proxy::handlers::web_auth::SessionStore, // Web 登录 session
+}
+
+impl AppState {
+    /// 更新模型映射配置
+    pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
+        let mut m = self.custom_mapping.write().await;
+        *m = config.custom_mapping.clone();
+        tracing::debug!("模型映射 (Custom) 已通过 Admin API 热更新");
+    }
+}
+
+// 实现 FromRef 以便 handlers::web_auth 可以只提取 SessionStore
+impl axum::extract::FromRef<AppState> for crate::proxy::handlers::web_auth::SessionStore {
+    fn from_ref(state: &AppState) -> Self {
+        state.sessions.clone()
+    }
 }
 
 /// Axum 服务器实例
@@ -107,6 +126,8 @@ impl AxumServer {
             zai_vision_mcp: zai_vision_mcp_state,
             monitor: monitor.clone(),
             experimental: experimental_state,
+            security_state: security_state.clone(),
+            sessions: Arc::new(RwLock::new(std::collections::HashMap::new())),
         };
 
 
@@ -174,10 +195,54 @@ impl AxumServer {
             .route("/v1/models/detect", post(handlers::common::handle_detect_model))
             .route("/v1/api/event_logging/batch", post(silent_ok_handler))
             .route("/v1/api/event_logging", post(silent_ok_handler))
+            // Admin API (Web Control)
+            .route("/api/admin/accounts", get(handlers::admin::handle_list_accounts).post(handlers::admin::handle_add_account))
+            .route("/api/admin/accounts/current", get(handlers::admin::handle_get_current_account))
+            .route("/api/admin/accounts/batch_delete", post(handlers::admin::handle_delete_accounts))
+            .route("/api/admin/accounts/:id", axum::routing::delete(handlers::admin::handle_delete_account))
+            .route("/api/admin/accounts/switch", post(handlers::admin::handle_switch_account))
+            .route("/api/admin/accounts/reorder", post(handlers::admin::handle_reorder_accounts))
+            .route("/api/admin/accounts/:id/toggle_proxy", post(handlers::admin::handle_toggle_proxy))
+            .route("/api/admin/config", get(handlers::admin::handle_load_config).post(handlers::admin::handle_save_config))
+            .route("/api/admin/quota/refresh", post(handlers::admin::handle_refresh_all_quotas))
+            .route("/api/admin/quota/:id", post(handlers::admin::handle_refresh_account_quota))
+            // Proxy Control
+            .route("/api/admin/proxy/status", get(handlers::proxy_control::handle_get_proxy_status))
+            .route("/api/admin/proxy/mapping", post(handlers::proxy_control::handle_update_model_mapping))
+            .route("/api/admin/proxy/fetch_models", post(handlers::proxy_control::handle_fetch_zai_models))
+            .route("/api/admin/proxy/sessions", axum::routing::delete(handlers::proxy_control::handle_clear_session_bindings))
+            .route("/api/admin/utils/generate_key", post(handlers::proxy_control::handle_generate_api_key))
+            // Monitor
+            .route("/api/admin/monitor/stats", get(handlers::proxy_control::handle_get_proxy_stats))
+            .route("/api/admin/monitor/logs", get(handlers::proxy_control::handle_get_proxy_logs).delete(handlers::proxy_control::handle_clear_proxy_logs))
+            .route("/api/admin/monitor/enable", post(handlers::proxy_control::handle_set_monitor_enabled))
+            // Stub control
+            .route("/api/admin/proxy/start", post(handlers::proxy_control::handle_start_stop_stub))
+            .route("/api/admin/proxy/stop", post(handlers::proxy_control::handle_start_stop_stub))
+            .route("/api/admin/proxy/restart", post(handlers::proxy_control::handle_restart_server))
+            // Auth API (Web Login)
+            .route("/api/auth/status", get(handlers::web_auth::handle_auth_status))
+            .route("/api/auth/setup", post(handlers::web_auth::handle_setup_password))
+            .route("/api/auth/login", post(handlers::web_auth::handle_login))
+            .route("/api/auth/logout", post(handlers::web_auth::handle_logout))
+            // Web OAuth API (手动 Code 流程)
+            .route("/api/oauth/url", get(handlers::web_oauth::get_google_auth_url))
+            .route("/api/oauth/exchange", post(handlers::web_oauth::exchange_google_code))
+            
             .route("/healthz", get(health_check_handler))
+            .fallback_service(
+                ServeDir::new("dist")
+                    .not_found_service(ServeFile::new("dist/index.html"))
+            )
             .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
             .layer(axum::middleware::from_fn_with_state(state.clone(), crate::proxy::middleware::monitor::monitor_middleware))
             .layer(TraceLayer::new_for_http())
+            // Admin 页面 session 认证中间件（先添加，后执行）
+            .layer(axum::middleware::from_fn_with_state(
+                state.sessions.clone(),
+                crate::proxy::middleware::admin_auth_middleware,
+            ))
+            // API Key 认证中间件（后添加，先执行）
             .layer(axum::middleware::from_fn_with_state(
                 security_state.clone(),
                 crate::proxy::middleware::auth_middleware,

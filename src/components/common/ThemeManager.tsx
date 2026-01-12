@@ -4,19 +4,19 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export default function ThemeManager() {
-    const { config, loadConfig } = useConfigStore();
+    const { config } = useConfigStore();
 
-    // Load config on mount
-    useEffect(() => {
-        const init = async () => {
-            await loadConfig();
-            // Show window after a short delay to ensure React has painted
-            setTimeout(async () => {
-                await getCurrentWindow().show();
-            }, 100);
-        };
-        init();
-    }, [loadConfig]);
+    // Load config on mount - REMOVED: Managed by DataInitializer in authenticated layout
+    // useEffect(() => {
+    //     const init = async () => {
+    //     await loadConfig();
+    //     // Show window after a short delay to ensure React has painted
+    //     setTimeout(async () => {
+    //         await getCurrentWindow().show();
+    //     }, 100);
+    //     };
+    //     init();
+    // }, [loadConfig]);
 
     // Apply theme when config changes
     useEffect(() => {

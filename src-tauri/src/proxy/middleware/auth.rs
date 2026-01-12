@@ -43,6 +43,31 @@ pub async fn auth_middleware(
         return Ok(next.run(request).await);
     }
     
+    // === 路径分类 ===
+    // 1. Web 登录认证接口 - 直接放行
+    if path.starts_with("/api/auth/") {
+        return Ok(next.run(request).await);
+    }
+    
+    // 2. Admin 管理 API - 由 admin_auth_middleware (session 认证) 处理，这里放行
+    if path.starts_with("/api/admin/") {
+        return Ok(next.run(request).await);
+    }
+    
+    // 3. 静态资源 (Web 前端) - 由 admin_auth_middleware 保护，这里放行
+    //    代理 API 路径包括:
+    //    - /v1/* (OpenAI Protocol, Claude Protocol)
+    //    - /v1beta/* (Gemini Native Protocol)
+    //    - /mcp/* (z.ai MCP)
+    let is_proxy_api = path.starts_with("/v1/") 
+        || path.starts_with("/v1beta/") 
+        || path.starts_with("/mcp/");
+    if !is_proxy_api {
+        return Ok(next.run(request).await);
+    }
+    
+    // === 以下只对代理 API 进行 API Key 验证 ===
+    
     // 从 header 中提取 API key
     let api_key = request
         .headers()

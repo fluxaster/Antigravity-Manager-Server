@@ -133,7 +133,20 @@
                 "copy_link": "Copy Auth Link",
                 "copied": "Copied",
                 "link_label": "Authorization URL",
-                "link_click_to_copy": "Click to copy"
+                "link_click_to_copy": "Click to copy",
+                "web_mode_title": "Web Mode Login",
+                "web_mode_desc": "Complete login in your local browser, then paste the code parameter from the address bar",
+                "step1_get_link": "Get Authorization Link",
+                "step2_paste_code": "Paste Authorization Code",
+                "get_link": "Get Authorization Link",
+                "getting_link": "Getting link...",
+                "open_link": "Open in Browser",
+                "code_placeholder": "Paste code parameter...",
+                "code_hint": "After login, the browser will show '127.0.0.1 refused to connect' - this is expected. Copy the URL from the address bar and paste it here to auto-parse.",
+                "submit_code": "Submit Code",
+                "code_empty": "Please enter the authorization code",
+                "exchanging_code": "Verifying authorization code...",
+                "success": "Account added successfully: {{email}}"
             },
             "token": {
                 "label": "Refresh Token",
@@ -153,7 +166,18 @@
                 "scheme_b": "Plan B: From V1 Backup",
                 "scheme_b_desc": "Scan ~/.antigravity-agent for V1 account data.",
                 "btn_v1": "Batch Import V1",
-                "btn_custom_db": "Import Custom DB"
+                "btn_custom_db": "Import Custom DB",
+                "json_title": "Import from JSON File",
+                "json_desc": "Import accounts from a previously exported JSON file",
+                "btn_json": "Select JSON File",
+                "json_hint": "JSON file should contain an array with email and refresh_token fields, matching the export format.",
+                "reading_file": "Reading file...",
+                "json_parse_error": "JSON parse failed, please check the file format",
+                "json_format_error": "JSON format error, should be an array",
+                "json_no_tokens": "No valid Refresh Tokens found",
+                "json_success": "Successfully imported {{count}} accounts",
+                "json_partial": "Import finished: {{success}} success, {{fail}} failed",
+                "refreshing_quota": "Refreshing account quotas..."
             },
             "btn_cancel": "Cancel",
             "btn_confirm": "Confirm",
@@ -271,6 +295,7 @@
             "latest_version": "You're up to date",
             "new_version_available": "New version {{version}} available",
             "download_update": "Download",
+            "original_project": "Original Project",
             "update_check_failed": "Update check failed"
         }
     },
@@ -295,7 +320,11 @@
         },
         "action": {
             "start": "Start Service",
-            "stop": "Stop Service"
+            "stop": "Stop Service",
+            "restart": "Restart",
+            "restart_confirm": "Are you sure you want to restart the service? Configuration changes will take effect after restart.",
+            "restarting": "Service is restarting...",
+            "restart_failed": "Restart failed"
         },
         "config": {
             "title": "Service Configuration",
@@ -310,6 +339,9 @@
             "allow_lan_access_hint_disabled": "🔒 Listening on 127.0.0.1 only, localhost access (Privacy First)",
             "allow_lan_access_warning": "⚠️ LAN devices can access when enabled. Keep your API key secure",
             "allow_lan_access_restart_hint": "ℹ️ Service restart required to apply changes",
+            "server_mode": "Run Mode",
+            "server_mode_badge": "Server Mode",
+            "server_mode_hint": "🌐 Listening on 0.0.0.0, supports remote access",
             "api_key": "API Key",
             "api_key_tooltip": "Shared secret used by clients when proxy authorization is enabled. Regenerating the key immediately invalidates the old one.",
             "btn_regenerate": "Regenerate Key",

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Database, Globe, FileClock, Loader2, CheckCircle2, XCircle, Copy, Check } from 'lucide-react';
+import { Plus, Database, Globe, FileClock, Loader2, CheckCircle2, XCircle, Copy, Check, ExternalLink, ClipboardPaste, Upload } from 'lucide-react';
 import { useAccountStore } from '../../stores/useAccountStore';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { request as invoke } from '../../utils/request';
+import { request as invoke, isTauri } from '../../utils/request';
+import { getWebOAuthUrl, submitWebOAuthCode } from '../../services/accountService';
 
 interface AddAccountDialogProps {
     onAdd: (email: string, refreshToken: string) => Promise<void>;
@@ -21,11 +22,15 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
     const [oauthUrl, setOauthUrl] = useState('');
     const [oauthUrlCopied, setOauthUrlCopied] = useState(false);
 
+    // Web 模式手动 Code 输入
+    const [manualCode, setManualCode] = useState('');
+    const isWebMode = !isTauri();
+
     // UI State
     const [status, setStatus] = useState<Status>('idle');
     const [message, setMessage] = useState('');
 
-    const { startOAuthLogin, completeOAuthLogin, cancelOAuthLogin, importFromDb, importV1Accounts, importFromCustomDb } = useAccountStore();
+    const { startOAuthLogin, completeOAuthLogin, cancelOAuthLogin, importFromDb, importV1Accounts, importFromCustomDb, refreshAllQuotas, fetchAccounts } = useAccountStore();
 
     const oauthUrlRef = useRef(oauthUrl);
     const statusRef = useRef(status);
@@ -141,6 +146,7 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
         setRefreshToken('');
         setOauthUrl('');
         setOauthUrlCopied(false);
+        setManualCode('');
     };
 
     const handleAction = async (
@@ -283,10 +289,80 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
             try {
                 await navigator.clipboard.writeText(oauthUrl);
                 setOauthUrlCopied(true);
-                window.setTimeout(() => setOauthUrlCopied(false), 1500);
+                setTimeout(() => setOauthUrlCopied(false), 1500);
             } catch (err) {
                 console.error('Failed to copy: ', err);
             }
+        }
+    };
+
+    // ===== Web 模式 OAuth 处理 =====
+    const handleWebGetUrl = async () => {
+        setStatus('loading');
+        setMessage(t('accounts.add.oauth.getting_link'));
+        try {
+            const url = await getWebOAuthUrl();
+            setOauthUrl(url);
+            setStatus('idle');
+            setMessage('');
+        } catch (error) {
+            setStatus('error');
+            setMessage(String(error));
+        }
+    };
+
+    const handleWebSubmitCode = async () => {
+        if (!manualCode.trim()) {
+            setStatus('error');
+            setMessage(t('accounts.add.oauth.code_empty'));
+            return;
+        }
+
+        setStatus('loading');
+        setMessage(t('accounts.add.oauth.exchanging_code'));
+
+        try {
+            // 支持自动解析完整 URL 或纯 code
+            let code = manualCode.trim();
+
+            // 如果粘贴的是完整 URL，尝试提取 code 参数
+            if (code.includes('?') || code.includes('code=')) {
+                try {
+                    // 尝试作为 URL 解析
+                    const url = new URL(code.startsWith('http') ? code : `http://dummy?${code}`);
+                    const extractedCode = url.searchParams.get('code');
+                    if (extractedCode) {
+                        code = extractedCode;
+                    }
+                } catch {
+                    // URL 解析失败，尝试正则提取
+                    const match = code.match(/code=([^&\s]+)/);
+                    if (match) {
+                        code = match[1];
+                    }
+                }
+            }
+
+            const result = await submitWebOAuthCode(code);
+
+            // 登录成功后自动刷新配额
+            setMessage(t('accounts.add.import.refreshing_quota'));
+            try {
+                await fetchAccounts();
+                await refreshAllQuotas();
+            } catch {
+                // 刷新失败不影响登录结果
+            }
+
+            setStatus('success');
+            setMessage(t('accounts.add.oauth.success', { email: result.email }));
+            setTimeout(() => {
+                setIsOpen(false);
+                resetState();
+            }, 1500);
+        } catch (error) {
+            setStatus('error');
+            setMessage(String(error));
         }
     };
 
@@ -316,6 +392,94 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
             }
         } catch (err) {
             console.error('Failed to open dialog:', err);
+        }
+    };
+
+    // 隐藏的文件输入 ref
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Web 模式 JSON 文件导入
+    const handleImportJson = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setStatus('loading');
+        setMessage(t('accounts.add.import.reading_file'));
+
+        try {
+            const text = await file.text();
+            let data: Array<{ email?: string; refresh_token?: string }>;
+
+            try {
+                data = JSON.parse(text);
+            } catch {
+                throw new Error(t('accounts.add.import.json_parse_error'));
+            }
+
+            if (!Array.isArray(data)) {
+                throw new Error(t('accounts.add.import.json_format_error'));
+            }
+
+            const tokens = data
+                .map(item => item.refresh_token)
+                .filter((t): t is string => typeof t === 'string' && t.startsWith('1//'));
+
+            if (tokens.length === 0) {
+                throw new Error(t('accounts.add.import.json_no_tokens'));
+            }
+
+            // 批量添加
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < tokens.length; i++) {
+                setMessage(t('accounts.add.token.batch_progress', { current: i + 1, total: tokens.length }));
+                try {
+                    await onAdd('', tokens[i]);
+                    successCount++;
+                } catch {
+                    failCount++;
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (successCount === tokens.length) {
+                setStatus('success');
+                setMessage(t('accounts.add.import.json_success', { count: successCount }));
+                // 导入成功后自动刷新配额
+                setMessage(t('accounts.add.import.refreshing_quota'));
+                try {
+                    await refreshAllQuotas();
+                } catch {
+                    // 刷新失败不影响导入结果
+                }
+                setMessage(t('accounts.add.import.json_success', { count: successCount }));
+                setTimeout(() => {
+                    setIsOpen(false);
+                    resetState();
+                }, 1500);
+            } else if (successCount > 0) {
+                setStatus('success');
+                setMessage(t('accounts.add.import.json_partial', { success: successCount, fail: failCount }));
+                // 部分成功也刷新配额
+                try {
+                    await fetchAccounts();
+                    await refreshAllQuotas();
+                } catch {
+                    // 刷新失败不影响导入结果
+                }
+            } else {
+                setStatus('error');
+                setMessage(t('accounts.add.token.batch_fail'));
+            }
+        } catch (error) {
+            setStatus('error');
+            setMessage(String(error));
+        } finally {
+            // 重置文件输入
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
     };
 
@@ -404,57 +568,146 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
                                             <Globe className="w-10 h-10 text-blue-500" />
                                         </div>
                                         <div className="space-y-1">
-                                            <h4 className="font-medium text-gray-900 dark:text-gray-100">{t('accounts.add.oauth.recommend')}</h4>
+                                            <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                                                {isWebMode ? t('accounts.add.oauth.web_mode_title') : t('accounts.add.oauth.recommend')}
+                                            </h4>
                                             <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
-                                                {t('accounts.add.oauth.desc')}
+                                                {isWebMode ? t('accounts.add.oauth.web_mode_desc') : t('accounts.add.oauth.desc')}
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="space-y-3">
-                                        <button
-                                            className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                                            onClick={handleOAuth}
-                                            disabled={status === 'loading' || status === 'success'}
-                                        >
-                                            {status === 'loading' ? t('accounts.add.oauth.btn_waiting') : t('accounts.add.oauth.btn_start')}
-                                        </button>
 
-                                        {oauthUrl && (
+                                    {/* Web 模式：手动 Code 流程 */}
+                                    {isWebMode ? (
+                                        <div className="space-y-4">
+                                            {/* 第一步：获取授权链接 */}
                                             <div className="space-y-2">
-                                                <div className="text-[11px] text-gray-500 dark:text-gray-400 text-left">
-                                                    {t('accounts.add.oauth.link_label')}
+                                                <div className="text-xs font-medium text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                                                    <span className="bg-blue-500 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center">1</span>
+                                                    {t('accounts.add.oauth.step1_get_link')}
                                                 </div>
-                                                <button
-                                                    type="button"
-                                                    className="w-full px-4 py-2 bg-white dark:bg-base-100 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-xl border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-base-200 transition-all flex items-center gap-2"
-                                                    onClick={handleCopyUrl}
-                                                    title={t('accounts.add.oauth.link_click_to_copy')}
-                                                >
-                                                    {oauthUrlCopied ? (
-                                                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                                    ) : (
-                                                        <Copy className="w-3.5 h-3.5" />
-                                                    )}
-                                                    <code className="text-[11px] font-mono truncate flex-1 text-left">
-                                                        {oauthUrl}
-                                                    </code>
-                                                    <span className="text-[11px] whitespace-nowrap">
-                                                        {oauthUrlCopied ? t('accounts.add.oauth.copied') : t('accounts.add.oauth.copy_link')}
-                                                    </span>
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    className="w-full px-4 py-2 bg-white dark:bg-base-100 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-gray-50 dark:hover:bg-base-200 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                                                    onClick={handleCompleteOAuth}
-                                                    disabled={status === 'loading' || status === 'success'}
-                                                >
-                                                    <CheckCircle2 className="w-4 h-4" />
-                                                    {t('accounts.add.oauth.btn_finish')}
-                                                </button>
+                                                {!oauthUrl ? (
+                                                    <button
+                                                        className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                                        onClick={handleWebGetUrl}
+                                                        disabled={status === 'loading'}
+                                                    >
+                                                        {status === 'loading' ? (
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <Globe className="w-4 h-4" />
+                                                        )}
+                                                        {t('accounts.add.oauth.get_link')}
+                                                    </button>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        <div className="flex gap-2">
+                                                            <a
+                                                                href={oauthUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                                                            >
+                                                                <ExternalLink className="w-4 h-4" />
+                                                                {t('accounts.add.oauth.open_link')}
+                                                            </a>
+                                                            <button
+                                                                type="button"
+                                                                className="px-4 py-2 bg-white dark:bg-base-100 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-gray-50 dark:hover:bg-base-200 transition-all flex items-center gap-2"
+                                                                onClick={handleCopyUrl}
+                                                            >
+                                                                {oauthUrlCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
+
+                                            {/* 第二步：粘贴 Code */}
+                                            {oauthUrl && (
+                                                <div className="space-y-2">
+                                                    <div className="text-xs font-medium text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                                                        <span className="bg-blue-500 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center">2</span>
+                                                        {t('accounts.add.oauth.step2_paste_code')}
+                                                    </div>
+                                                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                                                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                                                            {t('accounts.add.oauth.code_hint')}
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            className="flex-1 px-4 py-2 bg-white dark:bg-base-100 text-gray-900 dark:text-base-content text-sm rounded-xl border border-gray-200 dark:border-base-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                            placeholder={t('accounts.add.oauth.code_placeholder')}
+                                                            value={manualCode}
+                                                            onChange={(e) => setManualCode(e.target.value)}
+                                                            disabled={status === 'loading' || status === 'success'}
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                                        onClick={handleWebSubmitCode}
+                                                        disabled={status === 'loading' || status === 'success' || !manualCode.trim()}
+                                                    >
+                                                        {status === 'loading' ? (
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <ClipboardPaste className="w-4 h-4" />
+                                                        )}
+                                                        {t('accounts.add.oauth.submit_code')}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        /* Tauri 模式：原有的自动流程 */
+                                        <div className="space-y-3">
+                                            <button
+                                                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                                onClick={handleOAuth}
+                                                disabled={status === 'loading' || status === 'success'}
+                                            >
+                                                {status === 'loading' ? t('accounts.add.oauth.btn_waiting') : t('accounts.add.oauth.btn_start')}
+                                            </button>
+
+                                            {oauthUrl && (
+                                                <div className="space-y-2">
+                                                    <div className="text-[11px] text-gray-500 dark:text-gray-400 text-left">
+                                                        {t('accounts.add.oauth.link_label')}
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="w-full px-4 py-2 bg-white dark:bg-base-100 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-xl border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-base-200 transition-all flex items-center gap-2"
+                                                        onClick={handleCopyUrl}
+                                                        title={t('accounts.add.oauth.link_click_to_copy')}
+                                                    >
+                                                        {oauthUrlCopied ? (
+                                                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                                        ) : (
+                                                            <Copy className="w-3.5 h-3.5" />
+                                                        )}
+                                                        <code className="text-[11px] font-mono truncate flex-1 text-left">
+                                                            {oauthUrl}
+                                                        </code>
+                                                        <span className="text-[11px] whitespace-nowrap">
+                                                            {oauthUrlCopied ? t('accounts.add.oauth.copied') : t('accounts.add.oauth.copy_link')}
+                                                        </span>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        className="w-full px-4 py-2 bg-white dark:bg-base-100 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-gray-50 dark:hover:bg-base-200 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                                        onClick={handleCompleteOAuth}
+                                                        disabled={status === 'loading' || status === 'success'}
+                                                    >
+                                                        <CheckCircle2 className="w-4 h-4" />
+                                                        {t('accounts.add.oauth.btn_finish')}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -482,51 +735,89 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
                             {/* 从数据库导入 */}
                             {activeTab === 'import' && (
                                 <div className="space-y-6 py-2">
-                                    <div className="space-y-2">
-                                        <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                                            <Database className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                                            {t('accounts.add.import.scheme_a')}
-                                        </h4>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {t('accounts.add.import.scheme_a_desc')}
-                                        </p>
-                                        <button
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mb-2 shadow-sm"
-                                            onClick={handleImportDb}
-                                            disabled={status === 'loading' || status === 'success'}
-                                        >
-                                            <CheckCircle2 className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            {t('accounts.add.import.btn_db')}
-                                        </button>
-                                        <button
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:border-indigo-200 dark:hover:border-indigo-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                            onClick={handleImportCustomDb}
-                                            disabled={status === 'loading' || status === 'success'}
-                                        >
-                                            <Database className="w-4 h-4" />
-                                            {t('accounts.add.import.btn_custom_db') || 'Custom DB (state.vscdb)'}
-                                        </button>
-                                    </div>
+                                    {/* 隐藏的文件输入 */}
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept=".json"
+                                        className="hidden"
+                                        onChange={handleImportJson}
+                                    />
 
-                                    <div className="divider text-xs text-gray-300 dark:text-gray-600">{t('accounts.add.import.or')}</div>
+                                    {isWebMode ? (
+                                        /* Web 模式：仅显示 JSON 导入 */
+                                        <div className="space-y-2">
+                                            <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+                                                <Upload className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                                                {t('accounts.add.import.json_title')}
+                                            </h4>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                {t('accounts.add.import.json_desc')}
+                                            </p>
+                                            <button
+                                                className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                disabled={status === 'loading' || status === 'success'}
+                                            >
+                                                <Upload className="w-4 h-4" />
+                                                {t('accounts.add.import.btn_json')}
+                                            </button>
+                                            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mt-4">
+                                                <p className="text-xs text-amber-700 dark:text-amber-300">
+                                                    {t('accounts.add.import.json_hint')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* Tauri 模式：原有 UI */
+                                        <>
+                                            <div className="space-y-2">
+                                                <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+                                                    <Database className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                                                    {t('accounts.add.import.scheme_a')}
+                                                </h4>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    {t('accounts.add.import.scheme_a_desc')}
+                                                </p>
+                                                <button
+                                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mb-2 shadow-sm"
+                                                    onClick={handleImportDb}
+                                                    disabled={status === 'loading' || status === 'success'}
+                                                >
+                                                    <CheckCircle2 className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    {t('accounts.add.import.btn_db')}
+                                                </button>
+                                                <button
+                                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:border-indigo-200 dark:hover:border-indigo-800 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                                    onClick={handleImportCustomDb}
+                                                    disabled={status === 'loading' || status === 'success'}
+                                                >
+                                                    <Database className="w-4 h-4" />
+                                                    {t('accounts.add.import.btn_custom_db') || 'Custom DB (state.vscdb)'}
+                                                </button>
+                                            </div>
 
-                                    <div className="space-y-2">
-                                        <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                                            <FileClock className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                                            {t('accounts.add.import.scheme_b')}
-                                        </h4>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {t('accounts.add.import.scheme_b_desc')}
-                                        </p>
-                                        <button
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:border-emerald-200 dark:hover:border-emerald-800 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                            onClick={handleImportV1}
-                                            disabled={status === 'loading' || status === 'success'}
-                                        >
-                                            <FileClock className="w-4 h-4" />
-                                            {t('accounts.add.import.btn_v1')}
-                                        </button>
-                                    </div>
+                                            <div className="divider text-xs text-gray-300 dark:text-gray-600">{t('accounts.add.import.or')}</div>
+
+                                            <div className="space-y-2">
+                                                <h4 className="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+                                                    <FileClock className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                                                    {t('accounts.add.import.scheme_b')}
+                                                </h4>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    {t('accounts.add.import.scheme_b_desc')}
+                                                </p>
+                                                <button
+                                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-base-200 text-gray-700 dark:text-gray-300 font-medium rounded-xl border border-gray-200 dark:border-base-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:border-emerald-200 dark:hover:border-emerald-800 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                                                    onClick={handleImportV1}
+                                                    disabled={status === 'loading' || status === 'success'}
+                                                >
+                                                    <FileClock className="w-4 h-4" />
+                                                    {t('accounts.add.import.btn_v1')}
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>

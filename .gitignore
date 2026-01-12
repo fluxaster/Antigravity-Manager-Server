@@ -1,6 +1,12 @@
-# Logs
-logs
-.logs
+# ===================================
+# Antigravity Manager - Git 忽略规则
+# ===================================
+
+# -----------------------------------
+# 日志文件
+# -----------------------------------
+logs/
+.logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -8,40 +14,123 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# -----------------------------------
+# Node.js 依赖与构建产物
+# -----------------------------------
+node_modules/
+dist/
+dist-ssr/
 *.local
-.vite
+.vite/
+.cache/
+.parcel-cache/
+.turbo/
 
-# Editor directories and files
+# -----------------------------------
+# 编辑器与 IDE 配置
+# -----------------------------------
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+!.vscode/settings.json
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.sublime-workspace
+*.sublime-project
+.project
+.classpath
+.settings/
 
-# Build output
+# -----------------------------------
+# 系统文件
+# -----------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# -----------------------------------
+# Tauri / Rust 构建产物
+# -----------------------------------
 src-tauri/target/
 src-tauri/gen/
 src-tauri/.env
+*.pdb
+*.exe
+*.dll
+*.so
+*.dylib
+*.dSYM/
 
-# Environment
+# -----------------------------------
+# Linux / macOS 打包产物
+# -----------------------------------
+linux-output/
+*.deb
+*.rpm
+*.AppImage
+*.dmg
+*.tar.gz
+*.tar.xz
+*.zip
+
+# -----------------------------------
+# 环境与配置文件
+# -----------------------------------
 .env
 .env.*
+!.env.example
 environment/
 
-# Python virtual environments and test files
+# -----------------------------------
+# Python 相关
+# -----------------------------------
 .venv*/
 venv/
-# *.py
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
 
-# Reference projects (for development only)
+# -----------------------------------
+# 测试与覆盖率
+# -----------------------------------
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+playwright/.cache/
+e2e/results/
 
+# -----------------------------------
+# Docker 相关
+# -----------------------------------
+docker-compose.override.yml
+.docker/
+
+# -----------------------------------
+# 临时文件
+# -----------------------------------
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# -----------------------------------
+# 杂项
+# -----------------------------------
 DOCKER_DEPLOYMENT.md
+pack/
+.agent/

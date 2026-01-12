@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts (本地构建产物)
+src-tauri/target
+node_modules
+
+# 注意：dist 不排除，Docker 内部构建会生成
+# 但如果本地有 dist，会被复制进去（无影响，因为会被覆盖）
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (保留 README 和 docker 相关)
+docs
+!README.md
+!docker-compose.yml
+!Dockerfile
+!.dockerignore
+!docker-entrypoint.sh
+
+# Test files
+e2e
+*.test.*
+*.spec.*
+playwright.config.ts
+vitest.config.ts
+playwright-report
+test-results
+
+# Package scripts (Windows 专用)
+*.cmd
+*.ps1
+*.bat
+scripts
+
+# Casks (macOS)
+Casks
+
+# GitHub
+.github
+
+# Pack (release artifacts)
+pack
+
+# Linux output
+linux-output
+*.deb
+*.rpm
+*.AppImage

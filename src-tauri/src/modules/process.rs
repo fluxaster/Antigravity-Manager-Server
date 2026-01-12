@@ -712,8 +712,8 @@ pub fn start_antigravity() -> Result<(), String> {
         .and_then(|c| c.antigravity_executable.clone());
     let args = config.and_then(|c| c.antigravity_args.clone());
 
-    if let Some(mut path_str) = manual_path {
-        let mut path = std::path::PathBuf::from(&path_str);
+    if let Some(path_str) = manual_path {
+        let path = std::path::PathBuf::from(&path_str);
 
         #[cfg(target_os = "macos")]
         {

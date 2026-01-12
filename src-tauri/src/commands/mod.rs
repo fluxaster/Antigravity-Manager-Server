@@ -646,7 +646,7 @@ pub struct UpdateInfo {
 pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
     const GITHUB_API_URL: &str =
-        "https://api.github.com/repos/lbjlaq/Antigravity-Manager/releases/latest";
+        "https://api.github.com/repos/fluxaster/Antigravity-Manager-Server/releases/latest";
 
     modules::logger::log_info("开始检测更新...");
 
@@ -676,7 +676,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
 
     let download_url = json["html_url"]
         .as_str()
-        .unwrap_or("https://github.com/lbjlaq/Antigravity-Manager/releases")
+        .unwrap_or("https://github.com/fluxaster/Antigravity-Manager-Server/releases")
         .to_string();
 
     // 比较版本号

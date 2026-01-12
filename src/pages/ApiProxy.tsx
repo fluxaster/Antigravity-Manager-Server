@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { request as invoke, isTauri } from '../utils/request';
 import {
     Power,
     Copy,
@@ -613,46 +613,79 @@ print(response.text)`;
                                         {t('monitor.open_monitor')}
                                     </button>
                                 )}
-                                <button
-                                    onClick={handleToggle}
-                                    disabled={loading || !appConfig}
-                                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 ${status.running
-                                        ? 'bg-red-50 to-red-600 text-red-600 hover:bg-red-100 border border-red-200'
-                                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/30'
-                                        } ${(loading || !appConfig) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <Power size={14} />
-                                    {loading ? t('proxy.status.processing') : (status.running ? t('proxy.action.stop') : t('proxy.action.start'))}
-                                </button>
+                                {/* In Web mode (non-Tauri), show "Always Running" badge with restart button */}
+                                {!isTauri() ? (
+                                    <div className="flex items-center gap-2">
+                                        <div className="px-3 py-1 rounded-lg text-xs font-medium flex items-center gap-2 bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border border-green-200 dark:border-green-800">
+                                            <Power size={14} />
+                                            {t('proxy.status.always_running') || '服务器模式'}
+                                        </div>
+                                        <button
+                                            onClick={async () => {
+                                                if (!confirm(t('proxy.action.restart_confirm') || '确定要重启服务吗？配置更改将在重启后生效。')) return;
+                                                setLoading(true);
+                                                try {
+                                                    await fetch('/api/admin/proxy/restart', { method: 'POST' });
+                                                    showToast(t('proxy.action.restarting') || '服务正在重启...', 'success');
+                                                } catch (e) {
+                                                    showToast(t('proxy.action.restart_failed') || '重启失败', 'error');
+                                                } finally {
+                                                    setLoading(false);
+                                                }
+                                            }}
+                                            disabled={loading}
+                                            className="px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800 dark:hover:bg-amber-900/50"
+                                            title={t('proxy.action.restart') || '重启服务'}
+                                        >
+                                            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                                            {t('proxy.action.restart') || '重启'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={handleToggle}
+                                        disabled={loading || !appConfig}
+                                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 ${status.running
+                                            ? 'bg-red-50 to-red-600 text-red-600 hover:bg-red-100 border border-red-200'
+                                            : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/30'
+                                            } ${(loading || !appConfig) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        <Power size={14} />
+                                        {loading ? t('proxy.status.processing') : (status.running ? t('proxy.action.stop') : t('proxy.action.start'))}
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <div className="p-3 space-y-3">
                             {/* 监听端口、超时和自启动 */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        <span className="inline-flex items-center gap-1">
-                                            {t('proxy.config.port')}
-                                            <HelpTooltip
-                                                text={t('proxy.config.port_tooltip')}
-                                                ariaLabel={t('proxy.config.port')}
-                                                placement="right"
-                                            />
-                                        </span>
-                                    </label>
-                                    <input
-                                        type="number"
-                                        value={appConfig.proxy.port}
-                                        onChange={(e) => updateProxyConfig({ port: parseInt(e.target.value) })}
-                                        min={8000}
-                                        max={65535}
-                                        disabled={status.running}
-                                        className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg bg-white dark:bg-base-200 text-xs text-gray-900 dark:text-base-content focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-                                    />
-                                    <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
-                                        {t('proxy.config.port_hint')}
-                                    </p>
-                                </div>
+                            <div className={`grid grid-cols-1 ${isTauri() ? 'md:grid-cols-3' : 'md:grid-cols-1'} gap-3`}>
+                                {/* 监听端口 - 仅 Tauri 模式 */}
+                                {isTauri() && (
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                            <span className="inline-flex items-center gap-1">
+                                                {t('proxy.config.port')}
+                                                <HelpTooltip
+                                                    text={t('proxy.config.port_tooltip')}
+                                                    ariaLabel={t('proxy.config.port')}
+                                                    placement="right"
+                                                />
+                                            </span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={appConfig.proxy.port}
+                                            onChange={(e) => updateProxyConfig({ port: parseInt(e.target.value) })}
+                                            min={8000}
+                                            max={65535}
+                                            disabled={status.running}
+                                            className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg bg-white dark:bg-base-200 text-xs text-gray-900 dark:text-base-content focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                                        />
+                                        <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                                            {t('proxy.config.port_hint')}
+                                        </p>
+                                    </div>
+                                )}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         <span className="inline-flex items-center gap-1">
@@ -674,69 +707,92 @@ print(response.text)`;
                                         }}
                                         min={30}
                                         max={3600}
-                                        disabled={status.running}
+                                        disabled={isTauri() && status.running}
                                         className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg bg-white dark:bg-base-200 text-xs text-gray-900 dark:text-base-content focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                                     />
                                     <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
                                         {t('proxy.config.request_timeout_hint')}
                                     </p>
                                 </div>
-                                <div className="flex items-center">
-                                    <label className="flex items-center cursor-pointer gap-3">
-                                        <input
-                                            type="checkbox"
-                                            className="toggle toggle-sm bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600 checked:bg-blue-500 checked:border-blue-500 disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                                            checked={appConfig.proxy.auto_start}
-                                            onChange={(e) => updateProxyConfig({ auto_start: e.target.checked })}
-                                        />
-                                        <span className="text-xs font-medium text-gray-900 dark:text-base-content inline-flex items-center gap-1">
-                                            {t('proxy.config.auto_start')}
-                                            <HelpTooltip
-                                                text={t('proxy.config.auto_start_tooltip')}
-                                                ariaLabel={t('proxy.config.auto_start')}
-                                                placement="right"
+                                {/* 跟随应用自动启动 - 仅 Tauri 模式 */}
+                                {isTauri() && (
+                                    <div className="flex items-center">
+                                        <label className="flex items-center cursor-pointer gap-3">
+                                            <input
+                                                type="checkbox"
+                                                className="toggle toggle-sm bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600 checked:bg-blue-500 checked:border-blue-500 disabled:opacity-50 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                                                checked={appConfig.proxy.auto_start}
+                                                onChange={(e) => updateProxyConfig({ auto_start: e.target.checked })}
                                             />
-                                        </span>
-                                    </label>
-                                </div>
+                                            <span className="text-xs font-medium text-gray-900 dark:text-base-content inline-flex items-center gap-1">
+                                                {t('proxy.config.auto_start')}
+                                                <HelpTooltip
+                                                    text={t('proxy.config.auto_start_tooltip')}
+                                                    ariaLabel={t('proxy.config.auto_start')}
+                                                    placement="right"
+                                                />
+                                            </span>
+                                        </label>
+                                    </div>
+                                )}
                             </div>
 
 
                             {/* 局域网访问 & 访问授权 - 合并到同一行 */}
                             <div className="border-t border-gray-200 dark:border-base-300 pt-3 mt-3">
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                    {/* 允许局域网访问 */}
+                                    {/* 允许局域网访问 / 服务器模式 */}
                                     <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-medium text-gray-700 dark:text-gray-300 inline-flex items-center gap-1">
-                                                {t('proxy.config.allow_lan_access')}
-                                                <HelpTooltip
-                                                    text={t('proxy.config.allow_lan_access_tooltip')}
-                                                    ariaLabel={t('proxy.config.allow_lan_access')}
-                                                    placement="right"
-                                                />
-                                            </span>
-                                            <input
-                                                type="checkbox"
-                                                className="toggle toggle-sm bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600 checked:bg-blue-500 checked:border-blue-500"
-                                                checked={appConfig.proxy.allow_lan_access || false}
-                                                onChange={(e) => updateProxyConfig({ allow_lan_access: e.target.checked })}
-                                            />
-                                        </div>
-                                        <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                                            {(appConfig.proxy.allow_lan_access || false)
-                                                ? t('proxy.config.allow_lan_access_hint_enabled')
-                                                : t('proxy.config.allow_lan_access_hint_disabled')}
-                                        </p>
-                                        {(appConfig.proxy.allow_lan_access || false) && (
-                                            <p className="text-[10px] text-amber-600 dark:text-amber-500">
-                                                {t('proxy.config.allow_lan_access_warning')}
-                                            </p>
-                                        )}
-                                        {status.running && (
-                                            <p className="text-[10px] text-blue-600 dark:text-blue-400">
-                                                {t('proxy.config.allow_lan_access_restart_hint')}
-                                            </p>
+                                        {/* Web 模式 (服务器模式) - 显示只读标识 */}
+                                        {!isTauri() ? (
+                                            <>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300 inline-flex items-center gap-1">
+                                                        {t('proxy.config.server_mode') || '运行模式'}
+                                                    </span>
+                                                    <div className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border border-green-200 dark:border-green-800">
+                                                        {t('proxy.config.server_mode_badge') || '服务器模式'}
+                                                    </div>
+                                                </div>
+                                                <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                                    {t('proxy.config.server_mode_hint') || '🌐 监听 0.0.0.0，支持远程访问'}
+                                                </p>
+                                            </>
+                                        ) : (
+                                            /* Tauri 模式 - 保留原有的局域网访问开关 */
+                                            <>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300 inline-flex items-center gap-1">
+                                                        {t('proxy.config.allow_lan_access')}
+                                                        <HelpTooltip
+                                                            text={t('proxy.config.allow_lan_access_tooltip')}
+                                                            ariaLabel={t('proxy.config.allow_lan_access')}
+                                                            placement="right"
+                                                        />
+                                                    </span>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="toggle toggle-sm bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600 checked:bg-blue-500 checked:border-blue-500"
+                                                        checked={appConfig.proxy.allow_lan_access || false}
+                                                        onChange={(e) => updateProxyConfig({ allow_lan_access: e.target.checked })}
+                                                    />
+                                                </div>
+                                                <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                                    {(appConfig.proxy.allow_lan_access || false)
+                                                        ? t('proxy.config.allow_lan_access_hint_enabled')
+                                                        : t('proxy.config.allow_lan_access_hint_disabled')}
+                                                </p>
+                                                {(appConfig.proxy.allow_lan_access || false) && (
+                                                    <p className="text-[10px] text-amber-600 dark:text-amber-500">
+                                                        {t('proxy.config.allow_lan_access_warning')}
+                                                    </p>
+                                                )}
+                                                {status.running && (
+                                                    <p className="text-[10px] text-blue-600 dark:text-blue-400">
+                                                        {t('proxy.config.allow_lan_access_restart_hint')}
+                                                    </p>
+                                                )}
+                                            </>
                                         )}
                                     </div>
 

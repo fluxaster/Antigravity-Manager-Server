@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
-import { request as invoke } from '../utils/request';
+import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Sparkles, GitFork } from 'lucide-react';
+import { request as invoke, isTauri } from '../utils/request';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useConfigStore } from '../stores/useConfigStore';
 import { AppConfig } from '../types/config';
@@ -13,6 +13,7 @@ function Settings() {
     const { t } = useTranslation();
     const { config, loadConfig, saveConfig } = useConfigStore();
     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'about'>('general');
+    const isWebMode = !isTauri();
     const [formData, setFormData] = useState<AppConfig>({
         language: 'zh',
         theme: 'system',
@@ -259,28 +260,30 @@ function Settings() {
                                 </select>
                             </div>
 
-                            {/* 开机自动启动 */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-2">{t('settings.general.auto_launch')}</label>
-                                <select
-                                    className="w-full px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-base-content bg-gray-50 dark:bg-base-200"
-                                    value={formData.auto_launch ? 'enabled' : 'disabled'}
-                                    onChange={async (e) => {
-                                        const enabled = e.target.value === 'enabled';
-                                        try {
-                                            await invoke('toggle_auto_launch', { enable: enabled });
-                                            setFormData({ ...formData, auto_launch: enabled });
-                                            showToast(enabled ? '已启用开机自动启动' : '已禁用开机自动启动', 'success');
-                                        } catch (error) {
-                                            showToast(`${t('common.error')}: ${error}`, 'error');
-                                        }
-                                    }}
-                                >
-                                    <option value="disabled">{t('settings.general.auto_launch_disabled')}</option>
-                                    <option value="enabled">{t('settings.general.auto_launch_enabled')}</option>
-                                </select>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('settings.general.auto_launch_desc')}</p>
-                            </div>
+                            {/* 开机自动启动 - 仅 Tauri 模式 */}
+                            {!isWebMode && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-2">{t('settings.general.auto_launch')}</label>
+                                    <select
+                                        className="w-full px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-base-content bg-gray-50 dark:bg-base-200"
+                                        value={formData.auto_launch ? 'enabled' : 'disabled'}
+                                        onChange={async (e) => {
+                                            const enabled = e.target.value === 'enabled';
+                                            try {
+                                                await invoke('toggle_auto_launch', { enable: enabled });
+                                                setFormData({ ...formData, auto_launch: enabled });
+                                                showToast(enabled ? '已启用开机自动启动' : '已禁用开机自动启动', 'success');
+                                            } catch (error) {
+                                                showToast(`${t('common.error')}: ${error}`, 'error');
+                                            }
+                                        }}
+                                    >
+                                        <option value="disabled">{t('settings.general.auto_launch_disabled')}</option>
+                                        <option value="enabled">{t('settings.general.auto_launch_enabled')}</option>
+                                    </select>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('settings.general.auto_launch_desc')}</p>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -360,33 +363,35 @@ function Settings() {
                         <div className="space-y-4">
                             <h2 className="text-lg font-semibold text-gray-900 dark:text-base-content">{t('settings.advanced.title')}</h2>
 
-                            {/* 默认导出路径 */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-1">{t('settings.advanced.export_path')}</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        className="flex-1 px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-base-content font-medium"
-                                        value={formData.default_export_path || t('settings.advanced.export_path_placeholder')}
-                                        readOnly
-                                    />
-                                    {formData.default_export_path && (
+                            {/* 默认导出路径 - 仅 Tauri 模式 */}
+                            {!isWebMode && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-1">{t('settings.advanced.export_path')}</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            className="flex-1 px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-base-content font-medium"
+                                            value={formData.default_export_path || t('settings.advanced.export_path_placeholder')}
+                                            readOnly
+                                        />
+                                        {formData.default_export_path && (
+                                            <button
+                                                className="px-4 py-2 border border-gray-200 dark:border-base-300 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                                                onClick={() => setFormData({ ...formData, default_export_path: undefined })}
+                                            >
+                                                {t('common.clear')}
+                                            </button>
+                                        )}
                                         <button
-                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
-                                            onClick={() => setFormData({ ...formData, default_export_path: undefined })}
+                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 hover:text-gray-900 dark:hover:text-base-content transition-colors"
+                                            onClick={handleSelectExportPath}
                                         >
-                                            {t('common.clear')}
+                                            {t('settings.advanced.select_btn')}
                                         </button>
-                                    )}
-                                    <button
-                                        className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 hover:text-gray-900 dark:hover:text-base-content transition-colors"
-                                        onClick={handleSelectExportPath}
-                                    >
-                                        {t('settings.advanced.select_btn')}
-                                    </button>
+                                    </div>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('settings.advanced.default_export_path_desc')}</p>
                                 </div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('settings.advanced.default_export_path_desc')}</p>
-                            </div>
+                            )}
 
                             {/* 数据目录 */}
                             <div>
@@ -398,90 +403,97 @@ function Settings() {
                                         value={dataDirPath}
                                         readOnly
                                     />
-                                    <button
-                                        className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 hover:text-gray-900 dark:hover:text-base-content transition-colors"
-                                        onClick={handleOpenDataDir}
-                                    >
-                                        {t('settings.advanced.open_btn')}
-                                    </button>
+                                    {/* 打开按钮仅 Tauri 模式 */}
+                                    {!isWebMode && (
+                                        <button
+                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 hover:text-gray-900 dark:hover:text-base-content transition-colors"
+                                            onClick={handleOpenDataDir}
+                                        >
+                                            {t('settings.advanced.open_btn')}
+                                        </button>
+                                    )}
                                 </div>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{t('settings.advanced.data_dir_desc')}</p>
                             </div>
 
-                            {/* 反重力程序路径 */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-1">
-                                    {t('settings.advanced.antigravity_path')}
-                                </label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        className="flex-1 px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-base-content font-medium"
-                                        value={formData.antigravity_executable || ''}
-                                        placeholder={t('settings.advanced.antigravity_path_placeholder')}
-                                        onChange={(e) => setFormData({ ...formData, antigravity_executable: e.target.value })}
-                                    />
-                                    {formData.antigravity_executable && (
+                            {/* 反重力程序路径 - 仅 Tauri 模式 */}
+                            {!isWebMode && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-1">
+                                        {t('settings.advanced.antigravity_path')}
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            className="flex-1 px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-base-content font-medium"
+                                            value={formData.antigravity_executable || ''}
+                                            placeholder={t('settings.advanced.antigravity_path_placeholder')}
+                                            onChange={(e) => setFormData({ ...formData, antigravity_executable: e.target.value })}
+                                        />
+                                        {formData.antigravity_executable && (
+                                            <button
+                                                className="px-4 py-2 border border-gray-200 dark:border-base-300 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                                                onClick={() => setFormData({ ...formData, antigravity_executable: undefined })}
+                                            >
+                                                {t('common.clear')}
+                                            </button>
+                                        )}
                                         <button
-                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
-                                            onClick={() => setFormData({ ...formData, antigravity_executable: undefined })}
+                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors"
+                                            onClick={handleDetectAntigravityPath}
                                         >
-                                            {t('common.clear')}
+                                            {t('settings.advanced.detect_btn')}
                                         </button>
-                                    )}
-                                    <button
-                                        className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors"
-                                        onClick={handleDetectAntigravityPath}
-                                    >
-                                        {t('settings.advanced.detect_btn')}
-                                    </button>
-                                    <button
-                                        className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors"
-                                        onClick={handleSelectAntigravityPath}
-                                    >
-                                        {t('settings.advanced.select_btn')}
-                                    </button>
+                                        <button
+                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors"
+                                            onClick={handleSelectAntigravityPath}
+                                        >
+                                            {t('settings.advanced.select_btn')}
+                                        </button>
+                                    </div>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                                        {t('settings.advanced.antigravity_path_desc')}
+                                    </p>
                                 </div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                                    {t('settings.advanced.antigravity_path_desc')}
-                                </p>
-                            </div>
+                            )}
 
-                            {/* 反重力程序启动参数 */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-1">
-                                    {t('settings.advanced.antigravity_args')}
-                                </label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        className="flex-1 px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-base-content font-medium"
-                                        value={formData.antigravity_args ? formData.antigravity_args.join(' ') : ''}
-                                        placeholder={t('settings.advanced.antigravity_args_placeholder')}
-                                        onChange={(e) => {
-                                            const args = e.target.value.trim() === '' ? [] : e.target.value.split(' ').map(arg => arg.trim()).filter(arg => arg !== '');
-                                            setFormData({ ...formData, antigravity_args: args });
-                                        }}
-                                    />
-                                    <button
-                                        className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors"
-                                        onClick={async () => {
-                                            try {
-                                                const args = await invoke<string[]>('get_antigravity_args');
+                            {/* 反重力程序启动参数 - 仅 Tauri 模式 */}
+                            {!isWebMode && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-base-content mb-1">
+                                        {t('settings.advanced.antigravity_args')}
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            className="flex-1 px-4 py-4 border border-gray-200 dark:border-base-300 rounded-lg bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-base-content font-medium"
+                                            value={formData.antigravity_args ? formData.antigravity_args.join(' ') : ''}
+                                            placeholder={t('settings.advanced.antigravity_args_placeholder')}
+                                            onChange={(e) => {
+                                                const args = e.target.value.trim() === '' ? [] : e.target.value.split(' ').map(arg => arg.trim()).filter(arg => arg !== '');
                                                 setFormData({ ...formData, antigravity_args: args });
-                                                showToast(t('settings.advanced.antigravity_args_detected'), 'success');
-                                            } catch (error) {
-                                                showToast(`${t('settings.advanced.antigravity_args_detect_error')}: ${error}`, 'error');
-                                            }
-                                        }}
-                                    >
-                                        {t('settings.advanced.detect_args_btn')}
-                                    </button>
+                                            }}
+                                        />
+                                        <button
+                                            className="px-4 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors"
+                                            onClick={async () => {
+                                                try {
+                                                    const args = await invoke<string[]>('get_antigravity_args');
+                                                    setFormData({ ...formData, antigravity_args: args });
+                                                    showToast(t('settings.advanced.antigravity_args_detected'), 'success');
+                                                } catch (error) {
+                                                    showToast(`${t('settings.advanced.antigravity_args_detect_error')}: ${error}`, 'error');
+                                                }
+                                            }}
+                                        >
+                                            {t('settings.advanced.detect_args_btn')}
+                                        </button>
+                                    </div>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                                        {t('settings.advanced.antigravity_args_desc')}
+                                    </p>
                                 </div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                                    {t('settings.advanced.antigravity_args_desc')}
-                                </p>
-                            </div>
+                            )}
 
                             <div className="border-t border-gray-200 dark:border-base-200 pt-4">
                                 <h3 className="font-medium text-gray-900 dark:text-base-content mb-3">{t('settings.advanced.logs_title')}</h3>
@@ -600,7 +612,7 @@ function Settings() {
                                 </div>
 
                                 {/* Cards Grid - Now 3 columns */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl px-4">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl px-4">
                                     {/* Author Card */}
                                     <div className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 transition-all group flex flex-col items-center text-center gap-3">
                                         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl group-hover:scale-110 transition-transform duration-300">
@@ -625,7 +637,7 @@ function Settings() {
 
                                     {/* GitHub Card */}
                                     <a
-                                        href="https://github.com/lbjlaq/Antigravity-Manager"
+                                        href="https://github.com/fluxaster/Antigravity-Manager-Server"
                                         target="_blank"
                                         rel="noreferrer"
                                         className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all group flex flex-col items-center text-center gap-3 cursor-pointer"
@@ -641,6 +653,27 @@ function Settings() {
                                             </div>
                                         </div>
                                     </a>
+
+                                    {/* Original Project Card */}
+                                    <div className="bg-white dark:bg-base-100 p-4 rounded-2xl border border-gray-100 dark:border-base-300 shadow-sm hover:shadow-md hover:border-purple-200 dark:hover:border-purple-800 transition-all group flex flex-col items-center text-center gap-3">
+                                        <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                                            <GitFork className="w-6 h-6 text-purple-500" />
+                                        </div>
+                                        <div>
+                                            <div className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">{t('settings.about.original_project')}</div>
+                                            <div className="font-bold text-gray-900 dark:text-base-content text-sm">
+                                                <a
+                                                    href="https://github.com/lbjlaq/Antigravity-Manager"
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="hover:text-blue-500 transition-colors flex items-center justify-center gap-1"
+                                                >
+                                                    lbjlaq
+                                                    <ExternalLink className="w-3 h-3" />
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Tech Stack Badges */}

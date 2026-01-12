@@ -7,7 +7,7 @@ import CurrentAccount from '../components/dashboard/CurrentAccount';
 import BestAccounts from '../components/dashboard/BestAccounts';
 import AddAccountDialog from '../components/accounts/AddAccountDialog';
 import { save } from '@tauri-apps/plugin-dialog';
-import { request as invoke } from '../utils/request';
+import { request as invoke, isTauri } from '../utils/request';
 import { showToast } from '../components/common/ToastContainer';
 import { Account } from '../types/account';
 
@@ -117,22 +117,38 @@ function Dashboard() {
                 return;
             }
 
+            const exportData = accountsToExport.map(acc => ({
+                email: acc.email,
+                refresh_token: acc.token.refresh_token
+            }));
+            const content = JSON.stringify(exportData, null, 2);
+            const fileName = `antigravity_accounts_${new Date().toISOString().split('T')[0]}.json`;
+
+            // Web 模式：使用浏览器下载 API
+            if (!isTauri()) {
+                const blob = new Blob([content], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast(t('common.success'), 'success');
+                return;
+            }
+
+            // Tauri 模式：原有逻辑
             const path = await save({
                 filters: [{
                     name: 'JSON',
                     extensions: ['json']
                 }],
-                defaultPath: `antigravity_accounts_${new Date().toISOString().split('T')[0]}.json`
+                defaultPath: fileName
             });
 
             if (!path) return;
-
-            const exportData = accountsToExport.map(acc => ({
-                email: acc.email,
-                refresh_token: acc.token.refresh_token
-            }));
-
-            const content = JSON.stringify(exportData, null, 2);
 
             await invoke('save_text_file', { path, content });
 

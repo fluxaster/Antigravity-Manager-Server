@@ -13,7 +13,7 @@ pub enum ProxyAuthMode {
 
 impl Default for ProxyAuthMode {
     fn default() -> Self {
-        Self::Off
+        Self::AllExceptHealth  // 默认开启鉴权（仅健康检查除外）
     }
 }
 

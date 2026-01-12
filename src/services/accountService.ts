@@ -118,3 +118,21 @@ export async function toggleProxyStatus(accountId: string, enable: boolean, reas
 export async function reorderAccounts(accountIds: string[]): Promise<void> {
     return await invoke('reorder_accounts', { accountIds });
 }
+
+// ===== Web OAuth (手动 Code 流程) =====
+
+/**
+ * 获取 Web OAuth 授权链接
+ * 仅用于 Web 模式下的手动 Code 登录流程
+ */
+export async function getWebOAuthUrl(): Promise<string> {
+    return await invoke('get_web_oauth_url');
+}
+
+/**
+ * 提交手动复制的 Authorization Code
+ * 仅用于 Web 模式下的手动 Code 登录流程
+ */
+export async function submitWebOAuthCode(code: string): Promise<{ email: string; id: string }> {
+    return await invoke('submit_web_oauth_code', { code });
+}

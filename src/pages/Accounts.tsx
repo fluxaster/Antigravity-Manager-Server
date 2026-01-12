@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { request as invoke } from '../utils/request';
+import { request as invoke, isTauri } from '../utils/request';
 import { join } from '@tauri-apps/api/path';
 import { Search, RefreshCw, Download, Trash2, LayoutGrid, List, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useAccountStore } from '../stores/useAccountStore';
@@ -403,13 +403,29 @@ function Accounts() {
                 refresh_token: acc.token.refresh_token
             }));
             const content = JSON.stringify(exportData, null, 2);
+            const fileName = `antigravity_accounts_${new Date().toISOString().split('T')[0]}.json`;
 
+            // Web 模式：使用浏览器下载 API
+            if (!isTauri()) {
+                const blob = new Blob([content], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast(t('common.success'), 'success');
+                return;
+            }
+
+            // Tauri 模式：原有逻辑
             let path: string | null = null;
 
             // 2. Determine Path
             if (config?.default_export_path) {
                 // Use default path
-                const fileName = `antigravity_accounts_${new Date().toISOString().split('T')[0]}.json`;
                 path = await join(config.default_export_path, fileName);
             } else {
                 // Use Native Dialog
@@ -418,7 +434,7 @@ function Accounts() {
                         name: 'JSON',
                         extensions: ['json']
                     }],
-                    defaultPath: `antigravity_accounts_${new Date().toISOString().split('T')[0]}.json`
+                    defaultPath: fileName
                 });
             }
 
